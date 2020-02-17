@@ -10,8 +10,28 @@ async function run() {
     const client = new Client({ node: config.get('elasticsearch.uri') });
 
     // Create index
-    checkIndices(client, indexName);
+    await checkIndices(client, indexName);
 
+    // Add mapping
+    const { body: res } = await client.indices.putMapping({
+        index: indexName,
+        body: {
+            properties: {
+                'location': {
+                    "type": "geo_point"
+                }
+            }
+        }
+    });
+    if (res.errors) {
+        console.log(res.errors);
+    } else {
+        importData(client);
+    }
+}
+
+// Read the csv and import the data to elasticsearch
+function importData(client) {
     let dataSet = [];
 
     // Read CSV file
@@ -49,6 +69,7 @@ async function run() {
         });
 }
 
+// Send the data to elasticsearch
 async function sendData(dataSet, client) {
     return new Promise(async function (resolve, reject) {
         const chunks = chunk(dataSet, 20000);
@@ -57,7 +78,7 @@ async function sendData(dataSet, client) {
             if (bulkResponse.errors) {
                 reject(errors);
             } else {
-                console.log(`${data.length} data send`);
+                console.log(`${data.length} data sent`);
             }
         }
         resolve();
@@ -76,16 +97,13 @@ function createBulkInsertQuery(dataSet) {
 }
 
 // Create an index if not exist
-function checkIndices(client, name) {
-    client.indices.exists({ index: name }, (err, res, status) => {
-        if (res) {
-            console.log('index already exists');
-        } else {
-            client.indices.create({ index: name }, (err, res, status) => {
-                console.log(err, res, status);
-            });
-        }
-    });
+async function checkIndices(client, name) {
+    const { body: exist } = await client.indices.exists({ index: name });
+    if (exist) {
+        console.log('index already exists');
+    } else {
+        await client.indices.create({ index: name });
+    }
 }
 
 run().catch(console.error);
