@@ -3,13 +3,14 @@ const csv = require('csv-parser');
 const fs = require('fs');
 const { Client } = require('@elastic/elasticsearch');
 const indexName = config.get('elasticsearch.index_name');
+const { chunk } = require('lodash');
 
 async function run() {
     // Create Elasticsearch client
     const client = new Client({ node: config.get('elasticsearch.uri') });
 
-    // Création de l'indice si non présent
-    checkIndices(client, 'in-da-street');
+    // Create index
+    checkIndices(client, indexName);
 
     let dataSet = [];
 
@@ -20,41 +21,53 @@ async function run() {
         }))
         .on('data', (data) => {
             dataSet.push({
-                "@timestamp": data.DATEDECL,
-                "object_id": data.OBJECTID,
-                "annee_declaration": data['ANNEE DECLARATION'],
-                "mois_declaration": data['MOIS DECLARATION'],
-                "type": data.TYPE,
-                "sous_type": data.SOUSTYPE,
-                "code_postal": data.CODE_POSTAL,
-                "ville": data.VILLE,
-                "arrondissement": data.ARRONDISSEMENT,
-                "prefixe": data.PREFIXE,
-                "intervenant": data.INTERVENANT,
-                "conseil_de_quartier": data['CONSEIL DE QUARTIER'],
-                "location": data.geo_point_2d
+                '@timestamp': data.DATEDECL,
+                'object_id': data.OBJECTID,
+                'annee_declaration': data['ANNEE DECLARATION'],
+                'mois_declaration': data['MOIS DECLARATION'],
+                'type': data.TYPE,
+                'sous_type': data.SOUSTYPE,
+                'code_postal': data.CODE_POSTAL,
+                'ville': data.VILLE,
+                'arrondissement': data.ARRONDISSEMENT,
+                'prefixe': data.PREFIXE,
+                'intervenant': data.INTERVENANT,
+                'conseil_de_quartier': data['CONSEIL DE QUARTIER'],
+                'location': data.geo_point_2d
             });
         })
         .on('end', () => {
             console.log('push data');
-
-            client.bulk(createBulkInsertQuery(dataSet), (err, resp) => {
-                if (err) {
-                    console.trace(err.message);
-                } else {
-                    console.log(`Inserted ${resp.body.items.length} dataSet`);
-                }
+            sendData(dataSet, client).then(() => {
+                console.log('End');
+                client.close();
+            }, (err) => {
+                console.log('End because of an error');
+                console.trace(err);
                 client.close();
             });
-
-            console.log('Terminated!');
         });
 }
 
-// Fonction utilitaire permettant de formatter les données pour l'insertion "bulk" dans elastic
+async function sendData(dataSet, client) {
+    return new Promise(async function (resolve, reject) {
+        const chunks = chunk(dataSet, 20000);
+        for (data of chunks) {
+            const { body: bulkResponse } = await client.bulk(createBulkInsertQuery(data));
+            if (bulkResponse.errors) {
+                reject(errors);
+            } else {
+                console.log(`${data.length} data send`);
+            }
+        }
+        resolve();
+    });
+}
+
+// Format data for a bulk insert
 function createBulkInsertQuery(dataSet) {
     const body = dataSet.reduce((acc, data) => {
-        acc.push({ index: { _index: 'imdb', _type: '_doc', _id: data.object_id } })
+        acc.push({ index: { _index: indexName, _type: '_doc', _id: data.object_id } })
         acc.push(data);
         return acc
     }, []);
