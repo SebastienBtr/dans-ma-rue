@@ -101,6 +101,38 @@ exports.statsByMonth = (client, callback) => {
 }
 
 exports.statsPropreteByArrondissement = (client, callback) => {
-    // TODO Trouver le top 3 des arrondissements avec le plus d'anomalies concernant la propreté
-    callback([]);
+    client
+        .search({
+            index: indexName,
+            body: {
+                size: 0,
+                query: {
+                    bool: {
+                        must: {
+                            match: {
+                                type: "Propreté"
+                            }
+                        }
+                    }
+                },
+                aggs: {
+                    arrondissement: {
+                        terms: {
+                            field: "arrondissement.keyword",
+                            size: 3
+                        }
+                    }
+                }
+            }
+        })
+        .then(resp => {
+            callback(resp.body.aggregations.arrondissement.buckets.map((data) => {
+                return {
+                    arrondissement: data.key,
+                    count: data.doc_count
+                };
+            }));
+        }).catch((err) => {
+            console.log(err);
+        });
 }
